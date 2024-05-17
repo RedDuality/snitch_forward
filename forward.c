@@ -56,7 +56,6 @@ void rmsnorm(float* o, float* x, float* weight, int size) {
     }
 }
 
-
 void softmax(float* x, int size) {
     // find max value (for numerical stability)
     float max_val = x[0];
@@ -98,13 +97,12 @@ void forward(Transformer* transformer, int token, int pos) {
     float* x = s->x;
     int dim = p->dim;
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
+    int kv_mul = p->n_heads / p->n_kv_heads;  // integer multiplier of the kv sharing in multiquery
     int hidden_dim = p->hidden_dim;
     int head_size = dim / p->n_heads;
 
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim * sizeof(*x));
-
 
     // forward all the layers
     for (unsigned long long l = 0; l < p->n_layers; l++) {
@@ -115,28 +113,28 @@ void forward(Transformer* transformer, int token, int pos) {
         s->k = s->key_cache + loff + pos * kv_dim;
         s->v = s->value_cache + loff + pos * kv_dim;
 
-        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+        matmul(s->q, s->xb, w->wq + l * dim * dim, dim, dim);
+        matmul(s->k, s->xb, w->wk + l * dim * kv_dim, dim, kv_dim);
+        matmul(s->v, s->xb, w->wv + l * dim * kv_dim, dim, kv_dim);
 
-/*
-                // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        for (int i = 0; i < dim; i+=2) {
-            int head_dim = i % head_size;
-            float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-            float val = pos * freq;
-            float fcr = cosf(val);
-            float fci = sinf(val);
-            int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-            for (int v = 0; v < rotn; v++) {
-                float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
-                float v0 = vec[i];
-                float v1 = vec[i+1];
-                vec[i]   = v0 * fcr - v1 * fci;
-                vec[i+1] = v0 * fci + v1 * fcr;
-            }
-        }
-
+        /*
+                        // RoPE relative positional encoding: complex-valued rotate q and k in each head
+                for (int i = 0; i < dim; i+=2) {
+                    int head_dim = i % head_size;
+                    float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
+                    float val = pos * freq;
+                    float fcr = cosf(val);
+                    float fci = sinf(val);
+                    int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
+                    for (int v = 0; v < rotn; v++) {
+                        float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
+                        float v0 = vec[i];
+                        float v1 = vec[i+1];
+                        vec[i]   = v0 * fcr - v1 * fci;
+                        vec[i+1] = v0 * fci + v1 * fcr;
+                    }
+                }
+        
         // multihead attention. iterate over all heads
         int h;
         for (h = 0; h < p->n_heads; h++) {
@@ -176,9 +174,8 @@ void forward(Transformer* transformer, int token, int pos) {
             }
         }
 */
-
         // final matmul to get the output of the attention
-        matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+        matmul(s->xb2, s->xb, w->wo + l * dim * dim, dim, dim);
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
@@ -186,11 +183,11 @@ void forward(Transformer* transformer, int token, int pos) {
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
+        rmsnorm(s->xb, x, w->rms_ffn_weight + l * dim, dim);
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+        matmul(s->hb, s->xb, w->w1 + l * dim * hidden_dim, dim, hidden_dim);
+        matmul(s->hb2, s->xb, w->w3 + l * dim * hidden_dim, dim, hidden_dim);
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
@@ -203,7 +200,7 @@ void forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+        matmul(s->xb, s->hb, w->w2 + l * dim * hidden_dim, hidden_dim, dim);
 
         // residual connection
         for (int i = 0; i < dim; i++) {
@@ -219,10 +216,10 @@ void forward(Transformer* transformer, int token, int pos) {
 }
 
 int main(int argc, char* argv[]) {
-Transformer transformer = {
-    .config = config,
-    .state = state,
-    .weights = weights};
+    Transformer transformer = {
+        .config = config,
+        .state = state,
+        .weights = weights};
 
     forward(&transformer, 0, 0);
 

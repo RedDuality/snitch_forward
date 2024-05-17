@@ -13,8 +13,8 @@ int checkValues(float* current, float* correct, int length) {
     return 0;
 }
 
-void barrierEater(int barrierNum) {
-    for (int i = 0; i < barrierNum; i++)
+void barrierEater(int barriers) {
+    for (int i = 0; i < barriers; i++)
         snrt_cluster_hw_barrier();
 }
 
@@ -86,6 +86,10 @@ void forward(Transformer* transformer, int token, int pos) {
     int start_kv_index = coreindex * chunk_kv_size;
     int final_kv_index = coreindex == totalcores - 1 ? kv_dim : start_kv_index + chunk_kv_size;
 
+    int chunk_hd_size = hidden_dim / totalcores;
+    int start_hd_index = coreindex * chunk_hd_size;
+    int final_hd_index = coreindex == totalcores - 1 ? hidden_dim : start_hd_index + chunk_hd_size;
+
     // copy the token embedding into x
     if (coreindex == 0) {
         float* content_row = w->token_embedding_table + token * dim;
@@ -111,99 +115,99 @@ void forward(Transformer* transformer, int token, int pos) {
         snrt_cluster_hw_barrier();
 
         if (coreindex == 0) {
+            /*
+                            // RoPE relative positional encoding: complex-valued rotate q and k in each head
+                    for (int i = 0; i < dim; i+=2) {
+                        int head_dim = i % head_size;
+                        float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
+                        float val = pos * freq;
+                        float fcr = cosf(val);
+                        float fci = sinf(val);
+                        int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
+                        for (int v = 0; v < rotn; v++) {
+                            float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
+                            float v0 = vec[i];
+                            float v1 = vec[i+1];
+                            vec[i]   = v0 * fcr - v1 * fci;
+                            vec[i+1] = v0 * fci + v1 * fcr;
+                        }
+                    }
 
-/*
-                // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        for (int i = 0; i < dim; i+=2) {
-            int head_dim = i % head_size;
-            float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-            float val = pos * freq;
-            float fcr = cosf(val);
-            float fci = sinf(val);
-            int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-            for (int v = 0; v < rotn; v++) {
-                float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
-                float v0 = vec[i];
-                float v1 = vec[i+1];
-                vec[i]   = v0 * fcr - v1 * fci;
-                vec[i+1] = v0 * fci + v1 * fcr;
-            }
-        }
-
-        // multihead attention. iterate over all heads
-        int h;
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
+            // multihead attention. iterate over all heads
+            int h;
+            for (h = 0; h < p->n_heads; h++) {
+                // get the query vector for this head
+                float* q = s->q + h * head_size;
+                // attention scores for this head
+                float* att = s->att + h * p->seq_len;
+                // iterate over all timesteps, including the current one
+                for (int t = 0; t <= pos; t++) {
+                    // get the key vector for this head and at this timestep
+                    float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+                    // calculate the attention score as the dot product of q and k
+                    float score = 0.0f;
+                    for (int i = 0; i < head_size; i++) {
+                        score += q[i] * k[i];
+                    }
+                    score /= sqrtf(head_size);
+                    // save the score to the attention buffer
+                    att[t] = score;
                 }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
 
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
+                // softmax the scores to get attention weights, from 0..pos inclusively
+                softmax(att, pos + 1);
 
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
+                // weighted sum of the values, store back into xb
+                float* xb = s->xb + h * head_size;
+                memset(xb, 0, head_size * sizeof(float));
+                for (int t = 0; t <= pos; t++) {
+                    // get the value vector for this head and at this timestep
+                    float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+                    // get the attention weight for this timestep
+                    float a = att[t];
+                    // accumulate the weighted value into xb
+                    for (int i = 0; i < head_size; i++) {
+                        xb[i] += a * v[i];
+                    }
                 }
             }
+        }*/
+        //snrt_cluster_hw_barrier();
+
+        // final matmul to get the output of the attention
+        matmul(s->xb2, s->xb, w->wo + l * dim * dim, dim, dim, startindex, finalexindex);
+        // residual connection back into x
+        for (int i = startindex; i < finalexindex; i++) {
+            x[i] += s->xb2[i];
         }
-*/
-
-            // final matmul to get the output of the attention
-            matmul(s->xb2, s->xb, w->wo + l * dim * dim, dim, dim, 0, dim);
-
-            // residual connection back into x
-            for (int i = 0; i < dim; i++) {
-                x[i] += s->xb2[i];
-            }
-
+        snrt_cluster_hw_barrier();
+        if (coreindex == 0)
             // ffn rmsnorm
             rmsnorm(s->xb, x, w->rms_ffn_weight + l * dim, dim);
-            // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
-            // first calculate self.w1(x) and self.w3(x)
-            matmul(s->hb, s->xb, w->w1 + l * dim * hidden_dim, dim, hidden_dim, 0, hidden_dim);
-            matmul(s->hb2, s->xb, w->w3 + l * dim * hidden_dim, dim, hidden_dim, 0, hidden_dim);
+        snrt_cluster_hw_barrier();
+        // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
+        // first calculate self.w1(x) and self.w3(x)
+        matmul(s->hb, s->xb, w->w1 + l * dim * hidden_dim, dim, hidden_dim, start_hd_index, final_hd_index);
+        matmul(s->hb2, s->xb, w->w3 + l * dim * hidden_dim, dim, hidden_dim, start_hd_index, final_hd_index);
 
-            // SwiGLU non-linearity
-            for (int i = 0; i < hidden_dim; i++) {
-                float val = s->hb[i];
-                // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-                val *= (1.0f / (1.0f + expf(-val)));
-                // elementwise multiply with w3(x)
-                val *= s->hb2[i];
-                s->hb[i] = val;
-            }
-
-            // final matmul to get the output of the ffn
-            matmul(s->xb, s->hb, w->w2 + l * dim * hidden_dim, hidden_dim, dim, 0, dim);
-
-            // residual connection
-            for (int i = 0; i < dim; i++) {
-                x[i] += s->xb[i];
-            }
+        // SwiGLU non-linearity
+        for (int i = start_hd_index; i < final_hd_index; i++) {
+            float val = s->hb[i];
+            // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
+            val *= (1.0f / (1.0f + expf(-val)));
+            // elementwise multiply with w3(x)
+            val *= s->hb2[i];
+            s->hb[i] = val;
         }
 
+        snrt_cluster_hw_barrier();
+        // final matmul to get the output of the ffn
+        matmul(s->xb, s->hb, w->w2 + l * dim * hidden_dim, hidden_dim, dim, startindex, finalexindex);
+
+        // residual connection
+        for (int i = startindex; i < finalexindex; i++) {
+            x[i] += s->xb[i];
+        }
         snrt_cluster_hw_barrier();
     }
 
@@ -225,7 +229,7 @@ int main(int argc, char* argv[]) {
     if (snrt_is_compute_core())
         forward(&transformer, 0, 0);
     else
-        barrierEater(6);
+        barrierEater(3 + 6 * transformer.config.n_layers);
 
     if (snrt_is_dm_core())
         return checkValues(transformer.state.logits, result, transformer.config.vocab_size);
