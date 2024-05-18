@@ -89,7 +89,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
-void forward(Transformer* transformer, int token, int pos) {
+float* forward(Transformer* transformer, int token, int pos) {
     Config* p = &transformer->config;
     TransformerWeights* w = &transformer->weights;
     RunState* s = &transformer->state;
@@ -117,24 +117,24 @@ void forward(Transformer* transformer, int token, int pos) {
         matmul(s->k, s->xb, w->wk + l * dim * kv_dim, dim, kv_dim);
         matmul(s->v, s->xb, w->wv + l * dim * kv_dim, dim, kv_dim);
 
-        /*
-                        // RoPE relative positional encoding: complex-valued rotate q and k in each head
-                for (int i = 0; i < dim; i+=2) {
-                    int head_dim = i % head_size;
-                    float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-                    float val = pos * freq;
-                    float fcr = cosf(val);
-                    float fci = sinf(val);
-                    int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-                    for (int v = 0; v < rotn; v++) {
-                        float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
-                        float v0 = vec[i];
-                        float v1 = vec[i+1];
-                        vec[i]   = v0 * fcr - v1 * fci;
-                        vec[i+1] = v0 * fci + v1 * fcr;
-                    }
-                }
-        
+/*
+        // RoPE relative positional encoding: complex-valued rotate q and k in each head
+        for (int i = 0; i < dim; i += 2) {
+            int head_dim = i % head_size;
+            float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
+            float val = pos * freq;
+            float fcr = cosf(val);
+            float fci = sinf(val);
+            int rotn = i < kv_dim ? 2 : 1;  // how many vectors? 2 = q & k, 1 = q only
+            for (int v = 0; v < rotn; v++) {
+                float* vec = v == 0 ? s->q : s->k;  // the vector to rotate (query or key)
+                float v0 = vec[i];
+                float v1 = vec[i + 1];
+                vec[i] = v0 * fcr - v1 * fci;
+                vec[i + 1] = v0 * fci + v1 * fcr;
+            }
+        }
+*/
         // multihead attention. iterate over all heads
         int h;
         for (h = 0; h < p->n_heads; h++) {
@@ -173,7 +173,7 @@ void forward(Transformer* transformer, int token, int pos) {
                 }
             }
         }
-*/
+
         // final matmul to get the output of the attention
         matmul(s->xb2, s->xb, w->wo + l * dim * dim, dim, dim);
 
@@ -213,6 +213,7 @@ void forward(Transformer* transformer, int token, int pos) {
 
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+    return s->logits;
 }
 
 int main(int argc, char* argv[]) {
@@ -221,7 +222,12 @@ int main(int argc, char* argv[]) {
         .state = state,
         .weights = weights};
 
-    forward(&transformer, 0, 0);
+    float* logits;
+    int i = 0;
+//    for (i = 0; i < 3; i++)
+    logits = forward(&transformer, 0, 0);
+
+//    printf("logits[%d]: %.20f\n", 0, logits[0]);
 
     for (int i = 0; i < transformer.config.vocab_size; i++) {
         printf("logits[%d]: %.20f\n", i, transformer.state.logits[i]);

@@ -13,11 +13,11 @@ typedef struct {
 Config config = {
     .dim = dim,
     .hidden_dim = hidden_dim,
-    .n_layers = 1,
+    .n_layers = n_layers,
     .vocab_size = vocab_size,
     .n_heads = n_heads,
-    .n_kv_heads = 1,
-    .seq_len = 1,
+    .n_kv_heads = n_kv_heads,
+    .seq_len = seq_len,
 };
 
 typedef struct {
