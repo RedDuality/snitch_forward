@@ -10,7 +10,7 @@
 #define N_LAYERS 3
 #define N_HEADS 8
 #define N_KV_HEADS 1
-#define SEQ_LEN 1
+#define SEQ_LEN 3
 
 void createValues(int size, float *array) {
     for (int i = 0; i < size; i++)
@@ -102,11 +102,11 @@ int main() {
     createValues(w_length, w3);
 
     fprintf(file_pointer, "float token_embedding_table[%d] = {", token_embedding_length);
-    writeValues(dim, file_pointer, token_embedding_table);
+    writeValues(token_embedding_length, file_pointer, token_embedding_table);
     fprintf(file_pointer, "float rms_att_weight[%d] = {", att_length);
-    writeValues(dim, file_pointer, rms_att_weight);
+    writeValues(att_length, file_pointer, rms_att_weight);
     fprintf(file_pointer, "float rms_ffn_weight[%d] = {", ffn_length);
-    writeValues(dim, file_pointer, rms_ffn_weight);
+    writeValues(ffn_length, file_pointer, rms_ffn_weight);
 
     fprintf(file_pointer, "float wq[%d] = {", wq_length);
     writeValues(wq_length, file_pointer, wq);
