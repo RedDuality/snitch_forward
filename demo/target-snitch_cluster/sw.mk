@@ -1,0 +1,5 @@
+[...]
+
+APPS += sw/apps/forward
+
+[...]

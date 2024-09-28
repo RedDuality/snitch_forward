@@ -5,6 +5,7 @@
 #include "snrt.h"
 #include "structs.h"
 
+//RETURNS THE FIRST DIGIT THAT DOES NOT CORRISPOND TO THE RESULT FILE
 int checkValues(float* current, float* correct, int length) {
     for (int i = 0; i < length; i++) {
         if (current[i] != correct[i])
@@ -54,7 +55,6 @@ void softmax(float* x, int size) {
 }
 
 void matmul(float* xout, float* x, float* w, int n, int d, int start, int end) {
-    
     for (int i = start; i < end; i++) {
         float val = 0.0f;
         for (int j = 0; j < n; j++) {
@@ -112,8 +112,7 @@ void forward(Transformer* transformer, int token, int pos) {
 
     // forward all the layers
     for (unsigned long long l = 0; l < p->n_layers; l++) {
-        if (coreindex == 0)
-            // attention rmsnorm
+        if (coreindex == 0)   // attention rmsnorm
             rmsnorm(s->xb, x, w->rms_att_weight + l * dim, dim);
         snrt_cluster_hw_barrier();
 
@@ -135,7 +134,7 @@ void forward(Transformer* transformer, int token, int pos) {
                 float val = pos * freq;
                 float fcr = cosf(val);
                 float fci = sinf(val);
-                int rotn = i < kv_dim ? 2 : 1;  // how many vectors? 2 = q & k, 1 = q only
+                int rotn = i < kv_dim ? 2 : 1;
                 for (int v = 0; v < rotn; v++) {
                     float* vec = v == 0 ? s->q : s->k;  // the vector to rotate (query or key)
                     float v0 = vec[i];
@@ -145,9 +144,10 @@ void forward(Transformer* transformer, int token, int pos) {
                 }
             }
         }
-
-        
         snrt_cluster_hw_barrier();
+
+
+
         // multihead attention. iterate over all heads
         int h;
         for (h = heads_start; h < heads_end; h++) {
@@ -195,10 +195,10 @@ void forward(Transformer* transformer, int token, int pos) {
             x[i] += s->xb2[i];
         }
         snrt_cluster_hw_barrier();
-        if (coreindex == 0)
-            // ffn rmsnorm
+        if (coreindex == 0) // ffn rmsnorm
             rmsnorm(s->xb, x, w->rms_ffn_weight + l * dim, dim);
         snrt_cluster_hw_barrier();
+
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
         matmul(s->hb, s->xb, w->w1 + l * dim * hidden_dim, dim, hidden_dim, hd_start, hd_end);
@@ -213,11 +213,10 @@ void forward(Transformer* transformer, int token, int pos) {
             val *= s->hb2[i];
             s->hb[i] = val;
         }
-
         snrt_cluster_hw_barrier();
+
         // final matmul to get the output of the ffn
         matmul(s->xb, s->hb, w->w2 + l * dim * hidden_dim, hidden_dim, dim, start, end);
-
         // residual connection
         for (int i = start; i < end; i++) {
             x[i] += s->xb[i];
@@ -240,10 +239,12 @@ int main(int argc, char* argv[]) {
         .state = state,
         .weights = weights};
 
+    int start_cycle = snrt_mcycle();
     if (snrt_is_compute_core())
         forward(&transformer, 0, 0);
     else
         barrierEater(8 * transformer.config.n_layers + 2);
+    int end_cycle = snrt_mcycle();
 
     if (snrt_is_dm_core())
         return checkValues(transformer.state.logits, result, transformer.config.vocab_size);

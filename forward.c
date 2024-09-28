@@ -16,26 +16,22 @@ int checkValues(float* current, float* correct, int length) {
 
 void writeResults(int number, FILE* file_pointer, float* array) {
     for (int i = 0; i < number; i++) {
-        // Write content into the file
         if (i != number - 1)
             fprintf(file_pointer, "%.16f,", array[i]);
         else
             fprintf(file_pointer, "%.16f", array[i]);
     }
-    // Write content into the file
     fprintf(file_pointer, "%s", "};");
 }
 
 void writeOnFile(int length, float* array) {
     char filename[] = "results.h";
 
-    // Open file in write mode ("w" mode)
     FILE* file_pointer = fopen(filename, "w");
 
     fprintf(file_pointer, "float result[%d] = {", length);
     writeResults(length, file_pointer, array);
 
-    // Close the file
     fclose(file_pointer);
 
     printf("File created and content written successfully.\n");
@@ -222,22 +218,11 @@ int main(int argc, char* argv[]) {
         .state = state,
         .weights = weights};
 
-    float* logits;
-    int i = 0;
-//    for (i = 0; i < 3; i++)
-    logits = forward(&transformer, 0, 0);
-
-//    printf("logits[%d]: %.20f\n", 0, logits[0]);
-
-    for (int i = 0; i < transformer.config.vocab_size; i++) {
-        printf("logits[%d]: %.20f\n", i, transformer.state.logits[i]);
-    }
+    float* logits = forward(&transformer, 0, 0);
 
     writeOnFile(transformer.config.vocab_size, transformer.state.logits);
     return 0;
     // return checkValues(transformer.state.logits, transformer.state.logits, transformer.config.vocab_size);
 
     // printf("%d", checkValues(transformer.state.logits, transformer.state.logits,transformer.config.vocab_size));
-
-    // return checkValues(transformer.state.logits, transformer.state.logits, transformer.config.vocab_size);
 }
